@@ -14,11 +14,11 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace Telebot
 {
-    
+
     public partial class Form1 : Form
     {
 
-        static Random random = new Random();
+        public static Random random = new Random((int)DateTime.Now.Ticks);
         private static bool helpfull_list_updated = false;
         public static List<Lobby> lobbies = new List<Lobby>();
         private static string token = "5108404020:AAE0EtaZh-Th3XoZ7KOXOVLb-8TdbUAgUvw";
@@ -36,8 +36,29 @@ namespace Telebot
             client.OnMessage += MessageHandler;
             client.OnMessage += InputLobbyId;
             client.OnMessage += LobbyHandler;
+            client.OnMessage += GameHandler;
             PrintEveryone("Бот запущен! (✿◠‿◠)", StartButtons());
             button1.Enabled = false;
+        }
+
+        private void GameHandler(object sender, MessageEventArgs e)
+        {
+            var message = e.Message;
+
+            switch(message.Text)
+            {
+                case "my_cards":
+                    if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count>0).ToList().Count == 0) break;
+                    Lobby lobby = lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0];
+                    Player player = lobby.players.Where(x => x.id == message.Chat.Id).ToList()[0];
+                    string mes = "";
+                    player.cards.ForEach(x =>
+                    {
+                        mes += "<b>"+x.type.ToString()+"</b>" + ": " + x.text+"\n";
+                    });
+                    SendMessage(player.id, mes);
+                    break;
+            }
         }
 
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
@@ -46,7 +67,7 @@ namespace Telebot
             {
                 client.StopReceiving();
             }
-            catch(Exception)
+            catch (Exception)
             {
             }
         }
@@ -142,7 +163,16 @@ namespace Telebot
                 }
             };
         }
-
+        public static IReplyMarkup PlayerButtons()
+        {
+            return new ReplyKeyboardMarkup
+            {
+                Keyboard = new List<List<KeyboardButton>>()
+                {
+                    new List<KeyboardButton>{ new KeyboardButton{Text="my_cards" }}
+                }
+            };
+        }
 
         private static void MessageHandler(object sender, MessageEventArgs e)
         {
@@ -180,19 +210,19 @@ namespace Telebot
         }
         public static void SendMessage(Lobby lobby, string message)
         {
-            lobby.players.ForEach(x => client.SendTextMessageAsync(x.id, message));
+            lobby.players.ForEach(x => client.SendTextMessageAsync(x.id, message, Telegram.Bot.Types.Enums.ParseMode.Html));
         }
         public static void SendMessage(Lobby lobby, string message, IReplyMarkup Buttons)
         {
-            lobby.players.ForEach(x => client.SendTextMessageAsync(x.id, message, replyMarkup: Buttons));
+            lobby.players.ForEach(x => client.SendTextMessageAsync(x.id, message, Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: Buttons));
         }
         public static void SendMessage(long id, string message)
         {
-            client.SendTextMessageAsync(id, message);
+            client.SendTextMessageAsync(id, message,Telegram.Bot.Types.Enums.ParseMode.Html);
         }
         public static void SendMessage(long id, string message, IReplyMarkup Buttons)
         {
-            client.SendTextMessageAsync(id, message, replyMarkup: Buttons);
+            client.SendTextMessageAsync(id, message, Telegram.Bot.Types.Enums.ParseMode.Html, replyMarkup: Buttons);
         }
         private static void LobbyHandler(object sender, MessageEventArgs e)
         {
@@ -201,6 +231,11 @@ namespace Telebot
             switch (message.Text)
             {
                 case "start":
+                    if (lobbies.Where(x => x.admin == message.Chat.Id).ToList().Count == 0) break;
+                    Lobby lobby_start = lobbies.Where(x => x.admin == message.Chat.Id).ToList()[0];
+
+                    lobby_start.Distribution();
+                    SendMessage(lobby_start, "Игра началсб!",PlayerButtons());
                     break;
                 case "leave":
                     Lobby lobby = lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0];
@@ -313,16 +348,64 @@ namespace Telebot
         {
         }
 
-        
+
     }
+    /// <summary>
+    /// Type of card
+    /// </summary>
+    public enum CardType
+    {
+        /// <summary>
+        /// Player's professtion 
+        /// </summary>
+        Proffesion,
+        /// <summary>
+        /// Player's biology
+        /// </summary>
+        Biology,
+        /// <summary>
+        /// Players's health
+        /// </summary>
+        Health,
+        /// <summary>
+        /// Player's hobby
+        /// </summary>
+        Hobby,
+        /// <summary>
+        /// Player's bag
+        /// </summary>
+        Bag,
+        /// <summary>
+        /// Fact about player
+        /// </summary>
+        Fact,
+        /// <summary>
+        /// Special card 
+        /// </summary>
+        Special
+    }
+    public class Card
+    {
+        public CardType type { get; set; }
+        public string text { get; set; }
+        public bool isOpened;
+
+        public Card(CardType type, string text)
+        {
+            this.type = type;
+            this.text = text;
+        }
+    }
+
     public class Player
     {
         public long id;
-
+        public List<Card> cards;
 
         public Player(long id)
         {
             this.id = id;
+            cards = new List<Card>();
         }
     }
     public class Shelter
@@ -334,23 +417,57 @@ namespace Telebot
     {
 
     }
-    public struct GameStage
-    {
 
-    }
     public class Lobby
     {
+        public static Dictionary<CardType, string> cardTypes = new Dictionary<CardType, string> {
+                { CardType.Proffesion, "Профессия"},
+                { CardType.Biology, "Биология"},
+                { CardType.Bag, "Багаж"},
+                { CardType.Fact, "Факты"},
+                { CardType.Health, "Здоровье"},
+                { CardType.Hobby, "Хобби"},
+                { CardType.Special, "Особое"},
+            };
+        Dictionary<CardType, List<Card>> deck;
         Shelter shelter;
         Disaster disaster;
         public long admin;
         public uint lobby_id;
         public List<Player> players = new List<Player>();
 
+
         public Lobby(long admin, uint id)
         {
             this.admin = admin;
             lobby_id = id;
             players.Add(new Player(admin));
+
+        }
+        public static List<Card> LoadCardsFromFile(string path, CardType type)
+        {
+            List<Card> cards = new List<Card>();
+            string[] lines;
+            using (StreamReader sr = new StreamReader(path))
+            {
+                 lines = sr.ReadToEnd().Split(new char[] { '\n' },StringSplitOptions.RemoveEmptyEntries);
+            }
+            foreach (var item in lines)
+            {
+                cards.Add(new Card(type, item));
+            }
+            return cards;
+        }
+
+        public void CreateDeck()
+        {
+            Dictionary<CardType, List<Card>> deck = new Dictionary<CardType, List<Card>>();
+
+            foreach (var type in cardTypes.Keys)
+            {
+                deck.Add(type, LoadCardsFromFile($"Cards\\{cardTypes[type]}.txt", type));
+            }
+            this.deck = deck;
         }
 
         public void AddPlayer(long id)
@@ -361,6 +478,21 @@ namespace Telebot
         public bool RemovePlayer(long id)
         {
             return id != admin ? players.Remove(players.Where(x => x.id == id).ToList()[0]) : false;
+        }
+
+        public void Distribution()
+        {
+            CreateDeck();
+            players.ForEach(x =>
+            {
+                foreach (var cards in deck.Keys)
+                {
+                    List<Card> listOfCards = deck[cards];
+                    int index = Form1.random.Next(0, listOfCards.Count);
+                    x.cards.Add(listOfCards[index]);
+                    listOfCards.RemoveAt(index);
+                }
+            });
         }
     }
 }
