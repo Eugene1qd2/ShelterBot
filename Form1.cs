@@ -44,20 +44,57 @@ namespace Telebot
         private void GameHandler(object sender, MessageEventArgs e)
         {
             var message = e.Message;
-
-            switch(message.Text)
+            List<string> card_type_command = new List<string>(new string[] { "profession", "biology", "bag", "fact", "health", "hobby", "special" });
+            if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count > 0).ToList().Count == 0) return;
+            Lobby lobby = lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0];
+            Player player = lobby.players.Where(x => x.id == message.Chat.Id).ToList()[0];
+            string mes = "";
+            switch (message.Text.ToLower())
             {
                 case "my_cards":
-                    if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count>0).ToList().Count == 0) break;
-                    Lobby lobby = lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0];
-                    Player player = lobby.players.Where(x => x.id == message.Chat.Id).ToList()[0];
-                    string mes = "";
                     player.cards.ForEach(x =>
                     {
-                        mes += "<b>"+x.type.ToString()+"</b>" + ": " + x.text+"\n";
+                        mes += "<b>" + x.type.ToString() + "</b>" + ": " + x.text + "\n";
                     });
                     SendMessage(player.id, mes);
-                    break;
+                    return;
+                case "opend_cards":
+                    lobby.players.ForEach(x =>
+                    {
+                        mes += "<b>" + client.GetChatAsync(x.id).Result.FirstName+ "</b>";
+                        x.cards.ForEach(y =>
+                        {
+                            mes += "<b>" + y.type.ToString() + "</b>" + ": " + (y.isOpened?y.text:"<i>closed</i>") + "\n";
+                        });
+                        SendMessage(player.id, mes);
+                        mes = "";
+                    });
+                    return;
+            }
+            if (message.From.Id == lobby.players[lobby.turnPlayerId].id)
+            {
+                if (card_type_command.Contains(message.Text.ToLower()))
+                {
+                    if (player.cards[card_type_command.IndexOf(message.Text.ToLower())].isOpened == false)
+                    {
+                        mes = "<b>" + client.GetChatAsync(player.id).Result.FirstName + "</b>:\n" + "<b>" + player.cards[card_type_command.IndexOf(message.Text.ToLower())].type.ToString() + "</b>" + ": " + player.cards[card_type_command.IndexOf(message.Text.ToLower())].text + "\n";
+                        SendMessage(lobby, mes);
+                        lobby.turnPlayerId++;
+                        if (lobby.turnPlayerId >= lobby.players.Count)
+                        {
+                            lobby.turnPlayerId = 0;
+                        }
+                        player.cards[card_type_command.IndexOf(message.Text)].isOpened = true;
+                    }
+                    else
+                    {
+                        SendMessage(message.Chat.Id, "Эта карта уже открыта!\nПожалуйста выберите другую!");
+                    }
+                }
+            }
+            else
+            {
+                SendMessage(message.Chat.Id, "Сейчас не ваш ход!");
             }
         }
 
@@ -169,7 +206,9 @@ namespace Telebot
             {
                 Keyboard = new List<List<KeyboardButton>>()
                 {
-                    new List<KeyboardButton>{ new KeyboardButton{Text="my_cards" }}
+                    new List<KeyboardButton>{ new KeyboardButton{Text="my_cards" }, new KeyboardButton { Text = "opend_cards" } },
+                    new List<KeyboardButton>{ new KeyboardButton{Text="profession" }, new KeyboardButton { Text = "biology" }, new KeyboardButton { Text = "health" } },
+                    new List<KeyboardButton>{ new KeyboardButton{Text="hobby" }, new KeyboardButton { Text = "fact" },new KeyboardButton{Text="bag" }, new KeyboardButton { Text = "special" } },
                 }
             };
         }
@@ -180,7 +219,7 @@ namespace Telebot
             Console.WriteLine(message.From.FirstName + ": " + message.Text);
             string keyword = message.Text.Split()[0];
             AddNewUser(message.Chat);
-            switch (keyword)
+            switch (keyword.ToLower())
             {
                 case "/start":
 
@@ -218,7 +257,7 @@ namespace Telebot
         }
         public static void SendMessage(long id, string message)
         {
-            client.SendTextMessageAsync(id, message,Telegram.Bot.Types.Enums.ParseMode.Html);
+            client.SendTextMessageAsync(id, message, Telegram.Bot.Types.Enums.ParseMode.Html);
         }
         public static void SendMessage(long id, string message, IReplyMarkup Buttons)
         {
@@ -228,14 +267,16 @@ namespace Telebot
         {
             var message = e.Message;
             if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList().Count == 0) return;
-            switch (message.Text)
+            if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0].round >0) return;
+
+            switch (message.Text.ToLower())
             {
                 case "start":
                     if (lobbies.Where(x => x.admin == message.Chat.Id).ToList().Count == 0) break;
                     Lobby lobby_start = lobbies.Where(x => x.admin == message.Chat.Id).ToList()[0];
 
                     lobby_start.Distribution();
-                    SendMessage(lobby_start, "Игра началсб!",PlayerButtons());
+                    SendMessage(lobby_start, "Игра началсб!", PlayerButtons());
                     break;
                 case "leave":
                     Lobby lobby = lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0];
@@ -275,8 +316,10 @@ namespace Telebot
             {
                 if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList().Count == 0)
                 {
+                    if (lobbies.Where(x => x.players.Where(y => y.id == message.Chat.Id).ToList().Count == 1).ToList()[0].round > 0) return;
+
                     Lobby lobby = lobbies.Find(x => x.lobby_id == id);
-                    if (lobby != null)
+                    if (lobby != null || lobby.round>0)
                     {
                         if (lobby.players.Where(x => x.id == message.Chat.Id).ToList().Count == 0)
                         {
@@ -435,14 +478,17 @@ namespace Telebot
         public long admin;
         public uint lobby_id;
         public List<Player> players = new List<Player>();
-
+        public int turnPlayerId;
+        public int round;
+        public bool isVoting;
 
         public Lobby(long admin, uint id)
         {
             this.admin = admin;
             lobby_id = id;
             players.Add(new Player(admin));
-
+            round = 0;
+            isVoting = false;
         }
         public static List<Card> LoadCardsFromFile(string path, CardType type)
         {
@@ -450,7 +496,7 @@ namespace Telebot
             string[] lines;
             using (StreamReader sr = new StreamReader(path))
             {
-                 lines = sr.ReadToEnd().Split(new char[] { '\n' },StringSplitOptions.RemoveEmptyEntries);
+                lines = sr.ReadToEnd().Split(new char[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
             }
             foreach (var item in lines)
             {
